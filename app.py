@@ -30,16 +30,19 @@ def index():
 
 @app.route('/stream')
 def stream():
-    """Flux MJPEG continu"""
     def generate():
         global latest_frame
         while True:
             if latest_frame is not None:
                 yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + latest_frame + b'\r\n')
+                       b'Content-Type: image/jpeg\r\n\r\n' + latest_frame + b'\r\n\r\n')
             else:
-                time.sleep(0.1)
-
+                # Envoie une petite image noire au démarrage pour éviter le blocage
+                black = np.zeros((720, 1280, 3), dtype=np.uint8)
+                _, black_jpg = cv2.imencode('.jpg', black)
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + black_jpg.tobytes() + b'\r\n\r\n')
+            time.sleep(0.05)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/update', methods=['POST'])
