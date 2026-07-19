@@ -1,62 +1,57 @@
-from flask import Flask, Response, render_template_string, request
+from flask import Flask, Response, render_template_string
 import cv2
 import numpy as np
-from threading import Lock
+import time
 
 app = Flask(__name__)
 
+# Variable globale pour stocker la dernière frame
 latest_frame = None
-lock = Lock()
-
-HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Partage Écran</title>
-    <style>
-        body { background: #000; margin:0; padding:0; overflow:hidden; }
-        img { width: 100vw; height: 100vh; object-fit: contain; display:block; }
-    </style>
-</head>
-<body>
-    <img src="/video_feed" />
-</body>
-</html>
-"""
 
 @app.route('/')
 def index():
-    return render_template_string(HTML)
+    """Page web principale"""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Screenshare Live</title>
+        <style>
+            body { margin: 0; background: #000; }
+            img { width: 100%; height: auto; display: block; }
+        </style>
+    </head>
+    <body>
+        <img src="/stream" alt="Live Stream">
+    </body>
+    </html>
+    """
+    return render_template_string(html)
 
-@app.route('/stream', methods=['POST'])
-def receive_stream():
+@app.route('/stream')
+def stream():
+    """Flux MJPEG continu"""
+    def generate():
+        global latest_frame
+        while True:
+            if latest_frame is not None:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + latest_frame + b'\r\n')
+            else:
+                time.sleep(0.1)
+
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/update', methods=['POST'])
+def update_frame():
+    """Reçoit les frames du client"""
     global latest_frame
     try:
-        data = request.get_data()
-        frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-        if frame is not None:
-            with lock:
-                latest_frame = frame.copy()
+        latest_frame = request.data
+        return "OK", 200
     except:
-        pass
-    return "OK", 200
-
-def gen_frames():
-    global latest_frame
-    while True:
-        with lock:
-            frame = latest_frame.copy() if latest_frame is not None else np.zeros((720, 1280, 3), dtype=np.uint8)
-        
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        
-        time.sleep(0.025)
-
-@app.route('/video_feed')
-def video_feed():
-    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+        return "Error", 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    print("🚀 Serveur Screenshare démarré sur http://127.0.0.1:5000")
+    app.run(host='0.0.0.0', port=5000, debug=False)
